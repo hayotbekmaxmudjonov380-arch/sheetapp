@@ -27,3 +27,4 @@ package-lock.json
 package.json
 *.db-wal
 *.db-shm
+supabase_secret.json

@@ -127,6 +127,7 @@ td.formula.sel{background:#d9e6fc;}
   <span class="sep"></span>
   <button class="btn primary" id="btnBalans">📊 Balans hisoboti</button>
   <button class="btn primary" id="btnDDS">📅 DDS hisoboti</button>
+  <button class="btn primary" id="btnDavomat">🕔 Davomat</button>
 </div>
 
 <div id="fbar">
@@ -719,6 +720,54 @@ $("btnDDS").onclick = async () => {
   }catch(e){ alert(e.message); }
   finally{ loading(false); }
 };
+/* ================== Davomat (Face ID) ================== */
+$("btnDavomat").onclick = () => {
+  const today = new Date().toISOString().slice(0, 10);
+  openModal("🕔 Davomat — Face ID qurilmasi",
+    `<div style="display:flex; gap:8px; align-items:center; margin:2px 0 10px; flex-wrap:wrap">
+       <b>dan:</b> <input type="date" id="dvFrom" value="${today}">
+       <b>gacha:</b> <input type="date" id="dvTo" value="${today}">
+     </div>
+     <div id="dvBody" style="max-height:55vh; overflow:auto">⏳ Yuklanmoqda...</div>`,
+    [
+      {t:"🔁 Yangilash", cls:"primary", f:loadDavomat},
+      {t:"⬇ Excelga export", f:() => {
+        const f = $("dvFrom").value, t = $("dvTo").value;
+        window.open(`/api/attendance/export?from=${f}&to=${t}`, "_blank");
+      }},
+      {t:"Yopish", f:closeModal},
+    ]);
+  loadDavomat();
+};
+async function loadDavomat(){
+  const box = $("dvBody");
+  if(!box) return;
+  box.innerHTML = "⏳ Yuklanmoqda...";
+  try{
+    const f = $("dvFrom").value, t = $("dvTo").value;
+    const d = await api(`/api/attendance?from=${f}&to=${t}`);
+    if(d.error) throw new Error(d.error);
+    if(!d.rows.length){
+      box.innerHTML = "<i style='color:#5f6368'>Bu sana uchun ma'lumot yo'q.</i>";
+      return;
+    }
+    let html = "<table><tr><th>Sana</th><th>ID</th><th>Ism</th>" +
+      "<th>Kelgan</th><th>Chiqqan</th><th style='text-align:right'>Yozuv</th><th>Holat</th></tr>";
+    d.rows.forEach(r => {
+      const st = r.count >= 2 ? "✅ To'liq"
+               : (r.count === 1 ? "🟡 Keldi (chiqmemagan)" : "");
+      const late = r.late > 0 ? ` ⏰ ${r.late} daq kech` : "";
+      html += `<tr><td>${r.date}</td><td>${r.user_id}</td><td>${r.name}</td>` +
+              `<td>${r.first}</td><td>${r.last}</td>` +
+              `<td style='text-align:right'>${r.count}</td>` +
+              `<td>${st}${late}</td></tr>`;
+    });
+    html += "</table>";
+    box.innerHTML = html;
+  }catch(e){
+    box.innerHTML = `<div class="issue">⚠ ${e.message}</div>`;
+  }
+}
 async function writeReport(kind){
   loading(true);
   try{

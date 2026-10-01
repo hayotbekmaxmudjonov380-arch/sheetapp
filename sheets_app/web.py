@@ -1,13 +1,15 @@
 """SheetApp WEB — brauzerda ishlaydigan server (localhost)."""
 import io
 import os
+from datetime import date
 
 from flask import (Flask, request, jsonify, render_template, send_file,
                    Response)
+from openpyxl import Workbook
 
-from .storage import Workbook, col_letter
+from .storage import Workbook as _Wb, col_letter
 from .formula import Evaluator
-from . import xls_io, reports
+from . import xls_io, reports, db
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 if os.environ.get("SHEETAPP_DB"):
@@ -21,7 +23,7 @@ UPLOAD_DIR = "/tmp" if os.environ.get("VERCEL") else os.path.dirname(BASE)
 app = Flask(__name__, template_folder=os.path.join(BASE, "templates"))
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
 
-store = Workbook(DB_PATH)
+store = _Wb(DB_PATH)
 
 
 # ---------- yordamchilar ----------
@@ -246,6 +248,171 @@ def api_report_write():
         write_report_sheet("DDS", ["Sana", "Kunlik sof o'zgarish", "Tafsilot"], disp)
         title = "DDS"
     return jsonify({"sheets": sheets_payload(), "title": title})
+
+
+# ---------- ZKTeco ADMS (Face ID) push ----------
+def _text(lines):
+    return Response("\n".join(lines) + "\n", mimetype="text/plain")
+
+
+@app.get("/iclock/cdata")
+def zk_cdata_get():
+    """Qurilma qo'shilganda sozlamalarni oladi (handshake)."""
+    sn = request.args.get("SN", "")
+    allow = os.environ.get("ZK_SN", "").strip()
+    if allow and sn and sn not in [s.strip() for s in allow.split(",")]:
+        return _text(["ERROR: unknown SN"])
+    return _text([
+        f"GET OPTION FROM: {sn}",
+        "ATTLOGStamp=None",
+        "OpStamp=0",
+        "ErrorDelay=30",
+        "Delay=10",
+        "TransTimes=00:00;14:05",
+        "Transinterval=1",
+        "TransFlag=TransData AttLog OpLog AttPhoto EnrollUser ChgUser "
+        "EnrollFP ChgFP UserPic",
+        "TimeZone=5",
+        "Realtime=1",
+        "Encrypt=None",
+    ])
+
+
+def _parse_attlog(body, sn):
+    rows = []
+    for line in body.replace("\r\n", "\n").split("\n"):
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        pin, ts = parts[0].strip(), parts[1].strip()
+        if not pin or not ts:
+            continue
+        try:
+            date(int(ts[0:4]), int(ts[5:7]), int(ts[8:10]))
+        except (ValueError, IndexError):
+            continue
+
+        def _i(v):
+            try:
+                return int(str(v).strip())
+            except (TypeError, ValueError):
+                return None
+        rows.append({
+            "user_id": pin,
+            "punch_time": ts,
+            "status": _i(parts[2]) if len(parts) > 2 else 0,
+            "verify_mode": _i(parts[3]) if len(parts) > 3 else None,
+            "work_code": (parts[4].strip() or None) if len(parts) > 4 else None,
+            "device_sn": sn,
+            "raw": line,
+        })
+    return rows
+
+
+@app.post("/iclock/cdata")
+def zk_cdata_post():
+    """Qurilma davomat yozuvlarini yuboradi (ATTLOG)."""
+    sn = request.args.get("SN", "")
+    table = (request.args.get("table") or "").upper()
+    body = request.get_data(as_text=True, cache=False) or ""
+    if table == "ATTLOG" and body.strip() and db.available():
+        try:
+            db.insert_punches(_parse_attlog(body, sn))
+        except Exception as e:
+            print(f"[ZK] push saqlashda xato: {e}")
+    return _text(["OK"])
+
+
+@app.route("/iclock/getrequest")
+def zk_getrequest():
+    return _text(["OK"])
+
+
+@app.route("/iclock/devicecmd", methods=["GET", "POST"])
+def zk_devicecmd():
+    return _text(["OK"])
+
+
+@app.route("/iclock/registry", methods=["GET", "POST"])
+def zk_registry():
+    return _text(["OK"])
+
+
+# ---------- Davomat (Face ID hisoboti) ----------
+def _attendance_rows(dfrom, dto):
+    punches = db.list_attendance(dfrom, dto)
+    workers = {w["user_id"]: w for w in db.list_workers()}
+    start = os.environ.get("SHEET_START_TIME", "09:00")
+    groups = {}
+    for p in punches:
+        pt = str(p.get("punch_time") or "").replace("T", " ")
+        if " " not in pt:
+            continue
+        day, tstr = pt.split(" ", 1)
+        tstr = tstr[:8]
+        g = groups.setdefault((day, p["user_id"]),
+                              {"first": tstr, "last": tstr, "count": 0})
+        g["count"] += 1
+        if tstr < g["first"]:
+            g["first"] = tstr
+        if tstr > g["last"]:
+            g["last"] = tstr
+    rows = []
+    for (day, uid), g in sorted(groups.items(), reverse=True):
+        w = workers.get(uid) or {}
+        late = 0
+        if start and g["first"] > start:
+            try:
+                fm = int(g["first"][3:5]) + int(g["first"][0:2]) * 60
+                sm = int(start[3:5]) + int(start[0:2]) * 60
+                late = max(0, fm - sm)
+            except (ValueError, IndexError):
+                late = 0
+        rows.append({"date": day, "user_id": uid,
+                     "name": w.get("full_name") or uid,
+                     "first": g["first"], "last": g["last"],
+                     "count": g["count"], "late": late})
+    return rows, start
+
+
+@app.get("/api/attendance")
+def api_attendance():
+    if not db.available():
+        return jsonify({"error": "Supabase sozlanmagan"}), 503
+    dfrom = request.args.get("from") or date.today().isoformat()
+    dto = request.args.get("to") or dfrom
+    try:
+        rows, start = _attendance_rows(dfrom, dto)
+    except Exception as e:
+        return jsonify({"error": f"Davomat o'qishda xato: {e}"}), 502
+    return jsonify({"from": dfrom, "to": dto, "start_time": start,
+                    "rows": rows})
+
+
+@app.get("/api/attendance/export")
+def api_attendance_export():
+    if not db.available():
+        return jsonify({"error": "Supabase sozlanmagan"}), 503
+    dfrom = request.args.get("from") or date.today().isoformat()
+    dto = request.args.get("to") or dfrom
+    rows, _ = _attendance_rows(dfrom, dto)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Davomat"
+    ws.append(["Sana", "ID", "Ism", "Kelgan", "Chiqqan",
+               "Yozuvlar", "Kechikish (daq)"])
+    for r in rows:
+        ws.append([r["date"], r["user_id"], r["name"], r["first"],
+                   r["last"], r["count"], r["late"] or ""])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True,
+                     download_name=f"Davomat_{dfrom}_{dto}.xlsx",
+                     mimetype="application/vnd.openxmlformats-"
+                             "officedocument.spreadsheetml.sheet")
 
 
 def main():
