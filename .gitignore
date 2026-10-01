@@ -1,0 +1,27 @@
+# Ma'lumotlar / bazalar
+*.db
+Ish haqi.xlsx
+_import_tmp.xlsx
+_export_tmp.xlsx
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# IDE / tizim
+.idea/
+.vscode/
+.DS_Store
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Node (test)
+node_modules/
+package-lock.json
+package.json

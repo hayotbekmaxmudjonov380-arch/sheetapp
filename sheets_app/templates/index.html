@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SheetApp — Google Sheets uslubidagi hisob-kitob</title>
+<style>
+:root{
+  --brd:#d0d0d0; --hd:#f8f9fa; --sel:#1a73e8; --acc:#1a73e8;
+  --formula-bg:#e8f0fe; --err:#d93025; --tab:#dee1e6;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+html,body{height:100%;}
+body{font-family:"Segoe UI",Arial,sans-serif; font-size:13px; display:flex;
+     flex-direction:column; background:#fff; overflow:hidden; user-select:none;}
+/* ---------- toolbar ---------- */
+#top{display:flex; align-items:center; gap:6px; padding:6px 10px;
+     background:#fff; border-bottom:1px solid var(--brd); flex-wrap:wrap;}
+#top .logo{font-weight:bold; font-size:15px; margin-right:8px; color:#1a73e8;}
+.btn{border:1px solid var(--brd); background:#fff; border-radius:4px;
+     padding:5px 10px; cursor:pointer; font-size:12.5px; white-space:nowrap;}
+.btn:hover{background:#f1f3f4;}
+.btn.primary{background:var(--acc); color:#fff; border-color:var(--acc);}
+.btn.primary:hover{background:#1765cc;}
+.sep{width:1px; height:22px; background:var(--brd); margin:0 4px;}
+/* ---------- formula bar ---------- */
+#fbar{display:flex; align-items:center; gap:6px; padding:4px 8px;
+      border-bottom:1px solid var(--brd); background:#fff;}
+#cellref{background:#e8eaed; border-radius:4px; padding:4px 8px; width:70px;
+         text-align:center; font-weight:bold;}
+#formula{flex:1; border:1px solid var(--brd); border-radius:4px; padding:5px 8px;
+         font-family:Consolas,monospace; font-size:13px; outline:none;}
+#formula:focus{border-color:var(--acc);}
+/* ---------- filter banner ---------- */
+#filtbanner{display:none; padding:4px 10px; background:#fff8e1;
+            border-bottom:1px solid #f0e0b0; font-size:12.5px;}
+#filtbanner a{color:#b06000; cursor:pointer; text-decoration:underline;}
+/* ---------- hint ---------- */
+#hint{padding:6px 12px; background:#e6f4ea; border-bottom:1px solid #c3e6cb;
+      font-size:12.5px; color:#1e4620;}
+#hint b{color:#0b5d1e;}
+#hint a{color:#1a73e8; cursor:pointer; float:right; text-decoration:underline;}
+/* ---------- grid ---------- */
+#wrap{flex:1; overflow:auto; position:relative; background:#fff;}
+table{border-collapse:collapse; table-layout:fixed; width:max-content; min-width:100%;}
+th,td{border:1px solid var(--brd); height:24px; padding:0 4px; overflow:hidden;
+      white-space:nowrap; text-overflow:ellipsis; background:#fff;}
+th.colh,th.rowh{background:var(--hd); font-weight:normal; color:#555;
+                text-align:center; position:sticky; z-index:2; cursor:pointer;}
+th.colh{top:0; height:26px; width:110px;}
+th.rowh{left:0; width:46px; z-index:3;}
+th.corner{position:sticky; top:0; left:0; z-index:4; background:var(--hd); width:46px;}
+th.colh.hsel,th.rowh.hsel{background:#d3e3fd; color:#174ea6; font-weight:bold;}
+td{cursor:cell;}
+td.num{text-align:right;}
+td.formula{background:var(--formula-bg);}
+td.err{color:var(--err);}
+td.sel{background:#e8f0fe55;}
+td.active{outline:2px solid var(--sel); outline-offset:-2px; background:#fff;}
+td.formula.sel{background:#d9e6fc;}
+/* ---------- editor ---------- */
+#editor{position:fixed; display:none; z-index:50; border:2px solid var(--sel);
+        padding:0 3px; font-family:inherit; font-size:13px; outline:none;
+        background:#fff; box-shadow:0 2px 6px rgba(0,0,0,.2);}
+/* ---------- status ---------- */
+#status{display:flex; gap:18px; padding:4px 10px; background:#fff;
+        border-top:1px solid var(--brd); color:#444; font-size:12.5px;}
+#status .grow{flex:1;}
+/* ---------- sheet tabs ---------- */
+#tabbar{display:flex; align-items:center; background:#f8f9fa;
+        border-top:1px solid var(--brd); padding:2px 6px; gap:2px;}
+.stab{padding:5px 14px; background:var(--tab); border-radius:6px 6px 0 0;
+      cursor:pointer; font-size:12.5px; border:1px solid transparent;
+      border-bottom:none; max-width:180px; overflow:hidden;
+      text-overflow:ellipsis; white-space:nowrap;}
+.stab.active{background:#fff; border-color:var(--brd); font-weight:bold;
+             color:var(--acc);}
+.stab.add{background:transparent; padding:5px 10px; font-weight:bold;}
+.stab.add:hover{background:var(--tab);}
+/* ---------- context menu ---------- */
+#ctx{position:fixed; display:none; z-index:100; background:#fff;
+     border:1px solid var(--brd); border-radius:6px; box-shadow:0 4px 14px rgba(0,0,0,.22);
+     min-width:210px; padding:4px 0;}
+#ctx div{padding:7px 16px; cursor:pointer; font-size:13px;}
+#ctx div:hover{background:#f1f3f4;}
+#ctx hr{border:none; border-top:1px solid #eee; margin:4px 0;}
+/* ---------- search ---------- */
+#search{position:fixed; top:8px; right:16px; display:none; z-index:90;
+        background:#fff; border:1px solid var(--brd); border-radius:8px;
+        box-shadow:0 4px 14px rgba(0,0,0,.2); padding:8px; gap:6px;}
+#search input{border:1px solid var(--brd;); border:1px solid var(--brd);
+              border-radius:4px; padding:5px 8px; width:220px; outline:none;}
+/* ---------- modal ---------- */
+#modal{position:fixed; inset:0; display:none; z-index:80; background:rgba(0,0,0,.35);
+       align-items:center; justify-content:center;}
+#modal .box{background:#fff; border-radius:10px; width:min(860px,94vw);
+            max-height:88vh; display:flex; flex-direction:column;
+            box-shadow:0 10px 40px rgba(0,0,0,.3);}
+#modal .mh{display:flex; align-items:center; justify-content:space-between;
+           padding:14px 18px; border-bottom:1px solid var(--brd);
+           font-size:16px; font-weight:bold;}
+#modal .mb{padding:14px 18px; overflow:auto;}
+#modal .mf{padding:12px 18px; border-top:1px solid var(--brd);
+           display:flex; gap:8px; justify-content:flex-end;}
+#modal table{width:100%; border-collapse:collapse; font-size:13px;}
+#modal td,#modal th{border:1px solid var(--brd); padding:6px 9px; height:auto;
+                    white-space:normal;}
+#modal th{background:var(--hd); text-align:left;}
+#modal td.r{text-align:right; font-variant-numeric:tabular-nums;}
+#modal tr.total td{background:#d3e3fd; font-weight:bold;}
+.issue{padding:7px 10px; margin:6px 0; border-radius:6px; font-size:12.8px;
+       background:#fff8e1; color:#8a5a00; border:1px solid #f3e3b3;}
+.issue.info{background:#e8f0fe; color:#174ea6; border-color:#d3e3fd;}
+/* ---------- loading ---------- */
+#load{position:fixed; inset:0; display:none; z-index:200; background:rgba(255,255,255,.6);
+      align-items:center; justify-content:center; font-size:15px; color:#1a73e8;}
+</style>
+</head>
+<body>
+
+<div id="top">
+  <span class="logo">📊 SheetApp</span>
+  <button class="btn" id="btnImport">⬇ Excel'dan import</button>
+  <button class="btn" id="btnExport">⬆ Excel'ga export</button>
+  <span class="sep"></span>
+  <button class="btn" id="btnFind">🔍 Qidiruv</button>
+  <span class="sep"></span>
+  <button class="btn primary" id="btnBalans">📊 Balans hisoboti</button>
+  <button class="btn primary" id="btnDDS">📅 DDS hisoboti</button>
+</div>
+
+<div id="fbar">
+  <div id="cellref">A1</div>
+  <input id="formula" placeholder="Katakka yozing: matn, raqam yoki formula (=SUM(A1:A10))" autocomplete="off">
+</div>
+
+<div id="filtbanner">🔽 Filtr faol: <span id="filtinfo"></span> — <a id="filtclear">tozalash</a></div>
+
+<div id="hint">💡 <b>Katakni bosing va darhol yozing</b> — o'zgarishlar avtomatik saqlanadi.
+  Formula uchun <b>=</b> bilan boshlang (masalan <b>=SUM(A1:A10)</b>).
+  Katakni yana bir marta bosishingiz ham tahrirlashni ochadi.
+  <a id="hintClose">✕ Yashirish</a></div>
+
+<div id="wrap">
+  <table id="grid"></table>
+</div>
+
+<div id="status">
+  <span id="stSel"></span>
+  <span class="grow"></span>
+  <span id="stCells"></span>
+  <span id="stFile"></span>
+</div>
+
+<div id="tabbar"></div>
+
+<input id="editor">
+<div id="ctx"></div>
+
+<div id="search">
+  <input id="searchQ" placeholder="Qidirish...">
+  <button class="btn" id="searchNext">Keyingi →</button>
+  <button class="btn" id="searchClose">✕</button>
+</div>
+
+<div id="modal">
+  <div class="box">
+    <div class="mh"><span id="modalTitle"></span>
+      <button class="btn" onclick="closeModal()">✕</button></div>
+    <div class="mb" id="modalBody"></div>
+    <div class="mf" id="modalFoot"></div>
+  </div>
+</div>
+
+<div id="load">⏳ Yuklanmoqda...</div>
+
+<script>
+/* ================== holat ================== */
+let sheets = [], sid = null, sname = "", cells = {};
+let rows = 60, cols = 26;
+let sel = {r1:0,c1:0,r2:0,c2:0};      // faol katak r1,c1 ; diapazon r2,c2
+let editing = false;
+let editRC = null;                    // hozir tahrirlanayotgan katak {r,c}
+let filterCol = -1, filterQ = "";
+let findPos = 0;
+let lastCells = null;                  // report write uchun
+
+const $ = id => document.getElementById(id);
+const key = (r,c) => r + "," + c;
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+
+async function api(path, method="GET", body=null){
+  const opt = {method, headers:{}};
+  if(body !== null){
+    if(body instanceof FormData){ opt.body = body; }
+    else { opt.headers["Content-Type"]="application/json"; opt.body=JSON.stringify(body); }
+  }
+  const res = await fetch(path, opt);
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok){ throw new Error(data.error || ("Xato: " + res.status)); }
+  return data;
+}
+function loading(on){ $("load").style.display = on ? "flex" : "none"; }
+
+/* ================== ma'lumot yuklash ================== */
+async function loadWorkbook(){
+  const d = await api("/api/workbook");
+  sheets = d.sheets;
+  renderTabs();
+}
+async function loadSheet(id){
+  loading(true);
+  try{
+    const d = await api("/api/sheet/" + id);
+    sid = d.id; sname = d.name; cells = d.cells; sheets = d.sheets;
+    const ur = d.used || [0,0];
+    rows = clamp(ur[0] + 20, 50, 600);
+    cols = clamp(ur[1] + 8, 26, 150);
+    sel = {r1:0,c1:0,r2:0,c2:0};
+    findPos = 0;
+    renderTabs(); render(); updFbar(); updStats();
+    $("stFile").textContent = sname + " — " + Object.keys(cells).length + " ta to'ldirilgan katak";
+  } finally { loading(false); }
+}
+async function refreshCells(newCells){
+  cells = newCells;
+  const ur = usedRange();
+  rows = Math.max(rows, clamp(ur[0] + 20, 50, 600));
+  cols = Math.max(cols, clamp(ur[1] + 8, 26, 150));
+  render(); updStats();
+}
+function usedRange(){
+  let mr = 0, mc = 0;
+  for(const k in cells){ const [r,c] = k.split(",").map(Number);
+    if(r > mr) mr = r; if(c > mc) mc = c; }
+  return [mr, mc];
+}
+
+/* ================== jadval chizish ================== */
+function render(){
+  const t = $("grid");
+  t.innerHTML = "";
+  const thead = document.createElement("thead");
+  const htr = document.createElement("tr");
+  const corner = document.createElement("th");
+  corner.className = "corner"; htr.appendChild(corner);
+  for(let c = 0; c < cols; c++){
+    const th = document.createElement("th");
+    th.className = "colh" + (c >= Math.min(sel.c1,sel.c2) && c <= Math.max(sel.c1,sel.c2) ? " hsel" : "");
+    th.textContent = colName(c);
+    th.dataset.c = c;
+    th.oncontextmenu = e => { e.preventDefault(); colMenu(e, c); };
+    th.onclick = () => { select(sel.r1, c, false); };
+    htr.appendChild(th);
+  }
+  thead.appendChild(htr); t.appendChild(thead);
+
+  const tb = document.createElement("tbody");
+  const fRow = Math.min(sel.r1, sel.r2), lRow = Math.max(sel.r1, sel.r2);
+  const fCol = Math.min(sel.c1, sel.c2), lCol = Math.max(sel.c1, sel.c2);
+  for(let r = 0; r < rows; r++){
+    const tr = document.createElement("tr");
+    const rh = document.createElement("th");
+    rh.className = "rowh" + (r >= fRow && r <= lRow ? " hsel" : "");
+    rh.textContent = r + 1;
+    rh.oncontextmenu = e => { e.preventDefault(); rowMenu(e, r); };
+    tr.appendChild(rh);
+    const hidden = filterCol >= 0 && filterQ !== "" &&
+      !String(cellVal(r, filterCol)).toLowerCase().includes(filterQ.toLowerCase());
+    if(hidden) tr.style.display = "none";
+    for(let c = 0; c < cols; c++){
+      const td = document.createElement("td");
+      td.dataset.r = r; td.dataset.c = c;
+      const obj = cells[key(r,c)];
+      const raw = obj ? obj.raw : "";
+      const val = obj ? obj.val : "";
+      td.textContent = val;
+      if(raw !== "" && String(raw).startsWith("=")) td.classList.add("formula");
+      if(typeof val === "string" && /^#(CYCLE|REF|NAME|VALUE|DIV|PARSE|NUM)/.test(val))
+        td.classList.add("err");
+      const nv = Number(val);
+      if(val !== "" && !isNaN(nv) && isFinite(nv)) td.classList.add("num");
+      if(r >= fRow && r <= lRow && c >= fCol && c <= lCol) td.classList.add("sel");
+      if(r === sel.r1 && c === sel.c1) td.classList.add("active");
+      td.onclick = e => {
+        const wasActive = (r === sel.r1 && c === sel.c1 &&
+                           sel.r1 === sel.r2 && sel.c1 === sel.c2);
+        select(r, c, e.shiftKey);
+        if(wasActive && !e.shiftKey && !editing) beginEdit();
+      };
+      td.oncontextmenu = e => { e.preventDefault(); select(r, c, false); cellMenu(e, r, c); };
+      tr.appendChild(td);
+    }
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb);
+}
+function colName(c){ let s=""; c++; while(c){ const m=(c-1)%26; s=String.fromCharCode(65+m)+s; c=(c-m-1)/26;} return s; }
+function cellVal(r,c){ const o = cells[key(r,c)]; return o ? o.val : ""; }
+function cellRaw(r,c){ const o = cells[key(r,c)]; return o ? o.raw : ""; }
+
+/* ================== tanlash ================== */
+function select(r, c, extend){
+  r = clamp(r, 0, rows-1); c = clamp(c, 0, cols-1);
+  if(extend){ sel.r2 = r; sel.c2 = c; }
+  else { sel = {r1:r, c1:c, r2:r, c2:c}; }
+  render(); updFbar(); updStats();
+  const td = tdAt(sel.r1, sel.c1);
+  if(td) td.scrollIntoView({block:"nearest", inline:"nearest"});
+}
+function tdAt(r,c){ return document.querySelector(`td[data-r="${r}"][data-c="${c}"]`); }
+function updFbar(){
+  $("cellref").textContent = colName(sel.c1) + (sel.r1 + 1);
+  if(!editing) $("formula").value = cellRaw(sel.r1, sel.c1);
+}
+function updStats(){
+  const r1=Math.min(sel.r1,sel.r2), r2=Math.max(sel.r1,sel.r2);
+  const c1=Math.min(sel.c1,sel.c2), c2=Math.max(sel.c1,sel.c2);
+  let n=0, sum=0, nums=0;
+  for(let r=r1;r<=r2;r++) for(let c=c1;c<=c2;c++){
+    const v = cellVal(r,c); n++;
+    const nv = Number(v);
+    if(v !== "" && !isNaN(nv) && isFinite(nv)){ sum += nv; nums++; }
+  }
+  $("stSel").textContent = n > 1
+    ? `Tanlandi: ${n} katak | Yig'indi: ${sum.toLocaleString("en-US",{maximumFractionDigits:2})} | O'rtacha: ${(nums?sum/nums:0).toLocaleString("en-US",{maximumFractionDigits:2})} | Raqamlar: ${nums}`
+    : "";
+}
+
+/* ================== tahrirlash ================== */
+function beginEdit(prefill){
+  if(editing) return;
+  const td = tdAt(sel.r1, sel.c1);
+  if(!td) return;
+  editing = true;
+  editRC = {r: sel.r1, c: sel.c1};
+  const ed = $("editor");
+  const rect = td.getBoundingClientRect();
+  ed.style.left = rect.left + "px";
+  ed.style.top = rect.top + "px";
+  ed.style.width = Math.max(rect.width, 90) + "px";
+  ed.style.height = rect.height + "px";
+  ed.style.display = "block";
+  ed.value = prefill !== undefined ? prefill : cellRaw(sel.r1, sel.c1);
+  ed.focus();
+  if(prefill === undefined) ed.select();
+  else ed.setSelectionRange(ed.value.length, ed.value.length);
+}
+function endEdit(commit, dr=0, dc=0){
+  if(!editing) return;
+  const ed = $("editor");
+  const text = ed.value;
+  const rc = editRC || {r: sel.r1, c: sel.c1};
+  ed.style.display = "none";
+  editing = false;
+  editRC = null;
+  if(commit) commitCell(rc.r, rc.c, text, dr, dc);
+  else updFbar();
+}
+/* editor yopilgan holatda (boshqa joy bosilganda) — tahrirni yakunlash */
+function closeEditorCommit(){
+  if(!editing) return;
+  const ed = $("editor");
+  const rc = editRC;
+  if(ed.style.display !== "block" || !rc){ editing = false; editRC = null; return; }
+  const text = ed.value;
+  ed.style.display = "none";
+  editing = false;
+  editRC = null;
+  if(String(text) !== String(cellRaw(rc.r, rc.c)))
+    commitCell(rc.r, rc.c, text);
+  else updFbar();
+}
+async function commitCell(r, c, text, dr=0, dc=0){
+  const old = cellRaw(r,c);
+  if(String(text) === String(old)){
+    if(dr||dc) select(r+dr, c+dc, false);
+    return;
+  }
+  try{
+    const d = await api("/api/cell", "POST", {sid, r, c, raw:text});
+    await refreshCells(d.cells);
+    updFbar();
+    if(dr || dc) select(r+dr, c+dc, false);
+    else { render(); updStats(); }
+  }catch(e){ alert(e.message); }
+}
+async function clearSelection(){
+  const r1=Math.min(sel.r1,sel.r2), r2=Math.max(sel.r1,sel.r2);
+  const c1=Math.min(sel.c1,sel.c2), c2=Math.max(sel.c1,sel.c2);
+  const list = [];
+  for(let r=r1;r<=r2;r++) for(let c=c1;c<=c2;c++)
+    if(cellRaw(r,c) !== "") list.push([r,c]);
+  if(!list.length) return;
+  const d = await api("/api/clear", "POST", {sid, cells:list});
+  await refreshCells(d.cells);
+  updFbar();
+}
+
+/* ================== klaviatura ================== */
+document.addEventListener("keydown", async e => {
+  if($("modal").style.display === "flex"){
+    if(e.key === "Escape") closeModal();
+    return;
+  }
+  if(editing && document.activeElement !== $("editor")) closeEditorCommit();
+  if(document.activeElement === $("formula")){
+    if(e.key === "Enter"){ e.preventDefault(); endEditFromBar(); }
+    else if(e.key === "Escape"){ $("formula").blur(); }
+    return;
+  }
+  if(editing){
+    if(e.key === "Enter"){ e.preventDefault(); endEdit(true, 1, 0); }
+    else if(e.key === "Tab"){ e.preventDefault(); endEdit(true, 0, 1); }
+    else if(e.key === "Escape"){ e.preventDefault(); endEdit(false); }
+    return;
+  }
+  const inField = ["INPUT","TEXTAREA"].includes(document.activeElement.tagName);
+  if(e.ctrlKey && e.key.toLowerCase() === "f"){ e.preventDefault(); openSearch(); return; }
+  if(e.ctrlKey && e.key.toLowerCase() === "c"){ e.preventDefault(); copySel(); return; }
+  if(e.ctrlKey && e.key.toLowerCase() === "v"){ e.preventDefault(); pasteSel(); return; }
+  if(inField) return;
+
+  const move = (dr, dc, ext) => {
+    e.preventDefault();
+    const base = ext ? {r: sel.r2, c: sel.c2} : {r: sel.r1, c: sel.c1};
+    if(ext) select(base.r + dr, base.c + dc, true);
+    else select(base.r + dr, base.c + dc, false);
+  };
+  switch(e.key){
+    case "ArrowUp": move(-1,0,e.shiftKey); break;
+    case "ArrowDown": move(1,0,e.shiftKey); break;
+    case "ArrowLeft": move(0,-1,e.shiftKey); break;
+    case "ArrowRight": move(0,1,e.shiftKey); break;
+    case "Tab": e.preventDefault(); select(sel.r1, sel.c1 + (e.shiftKey?-1:1), false); break;
+    case "Enter": e.preventDefault(); beginEdit(); break;
+    case "F2": e.preventDefault(); beginEdit(); break;
+    case "Delete": case "Backspace": e.preventDefault(); clearSelection(); break;
+    case "Escape": closeCtx(); break;
+    default:
+      if(e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey){
+        e.preventDefault(); beginEdit(e.key);
+      }
+  }
+});
+function endEditFromBar(){
+  const text = $("formula").value;
+  $("formula").blur();
+  commitCell(sel.r1, sel.c1, text, 1, 0);
+}
+
+/* ================== nusxalash ================== */
+function selTSV(){
+  const r1=Math.min(sel.r1,sel.r2), r2=Math.max(sel.r1,sel.r2);
+  const c1=Math.min(sel.c1,sel.c2), c2=Math.max(sel.c1,sel.c2);
+  const lines = [];
+  for(let r=r1;r<=r2;r++){
+    const row = [];
+    for(let c=c1;c<=c2;c++) row.push(cellVal(r,c));
+    lines.push(row.join("\t"));
+  }
+  return lines.join("\n");
+}
+async function copySel(){
+  try{ await navigator.clipboard.writeText(selTSV()); }
+  catch(e){ alert("Nusxalashda xato: " + e.message); }
+}
+async function pasteSel(){
+  try{
+    const text = await navigator.clipboard.readText();
+    if(!text) return;
+    const lines = text.replace(/\r/g,"").split("\n");
+    if(lines[lines.length-1] === "") lines.pop();
+    const data = [];
+    lines.forEach((ln,i) => ln.split("\t").forEach((v,j) =>
+      data.push([sel.r1 + i, sel.c1 + j, v])));
+    const d = await api("/api/cells", "POST", {sid, data});
+    await refreshCells(d.cells);
+    updFbar();
+  }catch(e){ alert("Kirishda xato (ruxsat bering): " + e.message); }
+}
+
+/* ================== menyu ================== */
+function showCtx(x, y, items){
+  const m = $("ctx");
+  m.innerHTML = "";
+  items.forEach(it => {
+    if(it.sep){ m.appendChild(document.createElement("hr")); return; }
+    const d = document.createElement("div");
+    d.textContent = it.label;
+    d.onclick = () => { closeCtx(); it.fn(); };
+    m.appendChild(d);
+  });
+  m.style.display = "block";
+  m.style.left = Math.min(x, innerWidth - 230) + "px";
+  m.style.top = Math.min(y, innerHeight - items.length * 32 - 20) + "px";
+}
+function closeCtx(){ $("ctx").style.display = "none"; }
+document.addEventListener("click", e => {
+  if(!$("ctx").contains(e.target)) closeCtx();
+  if(editing){
+    if(e.target === $("editor")) return;   // editor ichida bosish — davom etadi
+    const td = e.target.closest ? e.target.closest("td") : null;
+    if(td && editRC && +td.dataset.r === editRC.r && +td.dataset.c === editRC.c){
+      $("editor").focus();          // o'z kataki — tahrir davom etadi
+      return;
+    }
+    closeEditorCommit();            // boshqa joy — tahrir yopiladi va saqlanadi
+    return;
+  }
+});
+/* ikki marta bosib tahrirlash (DOM qayta chizilganda ham ishlaydi) */
+$("grid").addEventListener("dblclick", e => {
+  const td = e.target.closest ? e.target.closest("td") : null;
+  if(!td) return;
+  select(+td.dataset.r, +td.dataset.c, false);
+  beginEdit();
+});
+function cellMenu(e, r, c){
+  showCtx(e.clientX, e.clientY, [
+    {label:"✎ Tahrirlash (yoki F2 / Enter)", fn:() => beginEdit()},
+    {label:"🗑 Tozalash (Delete)", fn:() => clearSelection()},
+    {sep:true},
+    {label:"Yuqoriga qator qo'shish", fn:()=>structOp("ins_row", r)},
+    {label:"Pastga qator qo'shish", fn:()=>structOp("ins_row", r+1)},
+    {label:"Qatorni o'chirish", fn:()=>structOp("del_row", r)},
+  ]);
+}
+
+async function structOp(op, at){
+  const d = await api("/api/struct", "POST", {sid, op, at});
+  await refreshCells(d.cells);
+  updFbar();
+}
+async function sortCol(c, desc){
+  loading(true);
+  try{
+    const d = await api("/api/sort", "POST", {sid, col:c, desc, start:1});
+    await refreshCells(d.cells);
+  } finally { loading(false); }
+}
+function colMenu(e, c){
+  showCtx(e.clientX, e.clientY, [
+    {label:"⬇ Saralash (kattadan)", fn:()=>sortCol(c,true)},
+    {label:"⬆ Saralash (kichikdan)", fn:()=>sortCol(c,false)},
+    {label:"🔽 Ushbu ustunda filtr...", fn:()=>askFilter(c)},
+    {sep:true},
+    {label:"Chapga ustun qo'shish", fn:()=>structOp("ins_col", c)},
+    {label:"O'ngga ustun qo'shish", fn:()=>structOp("ins_col", c+1)},
+    {label:"Ustunni o'chirish", fn:()=>structOp("del_col", c)},
+  ]);
+}
+function rowMenu(e, r){
+  showCtx(e.clientX, e.clientY, [
+    {label:"Yuqoriga qator qo'shish", fn:()=>structOp("ins_row", r)},
+    {label:"Pastga qator qo'shish", fn:()=>structOp("ins_row", r+1)},
+    {label:"Qatorni o'chirish", fn:()=>structOp("del_row", r)},
+  ]);
+}
+function askFilter(c){
+  const q = prompt(colName(c) + " ustunida qaysi matnni qoldirish? (bo'sh = tozalash)");
+  if(q === null) return;
+  filterCol = q === "" ? -1 : c;
+  filterQ = q;
+  applyFilterBanner(); render();
+}
+function applyFilterBanner(){
+  const on = filterCol >= 0 && filterQ !== "";
+  $("filtbanner").style.display = on ? "block" : "none";
+  if(on) $("filtinfo").textContent = colName(filterCol) + " ustunida '" + filterQ + "'";
+}
+$("filtclear").onclick = () => { filterCol = -1; filterQ = "";
+  applyFilterBanner(); render(); };
+$("hintClose").onclick = () => {
+  $("hint").style.display = "none";
+  try{ localStorage.setItem("sheetHintClosed", "1"); }catch(e){}
+};
+
+/* ================== qidiruv ================== */
+function openSearch(){ $("search").style.display = "flex"; $("searchQ").focus(); $("searchQ").select(); }
+$("btnFind").onclick = openSearch;
+$("searchClose").onclick = () => { $("search").style.display = "none"; };
+$("searchNext").onclick = doFind;
+$("searchQ").onkeydown = e => { if(e.key === "Enter") doFind(); if(e.key === "Escape") $("searchClose").click(); };
+function doFind(){
+  const q = $("searchQ").value;
+  if(!q) return;
+  const total = rows * cols;
+  for(let k = 0; k < total; k++){
+    const i = (findPos + k) % total;
+    const r = Math.floor(i / cols), c = i % cols;
+    const hay = (cellRaw(r,c) + " " + cellVal(r,c)).toLowerCase();
+    if(hay.includes(q.toLowerCase())){
+      findPos = i + 1;
+      select(r, c, false);
+      return;
+    }
+  }
+  alert("Topilmadi");
+}
+
+/* ================== varaq tablari ================== */
+function renderTabs(){
+  const bar = $("tabbar");
+  bar.innerHTML = "";
+  sheets.forEach(sh => {
+    const d = document.createElement("div");
+    d.className = "stab" + (sh.id === sid ? " active" : "");
+    d.textContent = sh.name;
+    d.title = sh.name;
+    d.onclick = () => { if(sh.id !== sid) loadSheet(sh.id); };
+    d.ondblclick = () => renameSheet(sh);
+    d.oncontextmenu = e => {
+      e.preventDefault();
+      showCtx(e.clientX, e.clientY, [
+        {label:"✏ Nomini o'zgartirish", fn:()=>renameSheet(sh)},
+        {label:"📋 Nusxalash", fn:()=>sheetOp("duplicate", sh.id)},
+        {label:"🗑 O'chirish", fn:()=>sheetOp("delete", sh.id)},
+      ]);
+    };
+    bar.appendChild(d);
+  });
+  const add = document.createElement("div");
+  add.className = "stab add";
+  add.textContent = "＋";
+  add.title = "Yangi varaq";
+  add.onclick = () => sheetOp("add");
+  bar.appendChild(add);
+}
+async function sheetOp(op, id, name){
+  try{
+    const d = await api("/api/sheets", "POST", {op, sid:id, name});
+    sheets = d.sheets;
+    renderTabs();
+    if(op === "add"){
+      const last = sheets[sheets.length-1];
+      await loadSheet(last.id);
+    } else if((op === "delete" && id === sid) || op === "duplicate"){
+      const t = op === "duplicate" ? sheets[sheets.length-1] : sheets[0];
+      await loadSheet(t ? t.id : sid);
+    } else if(op === "rename"){
+      sname = name;
+      $("stFile").textContent = name + " — " + Object.keys(cells).length + " ta to'ldirilgan katak";
+    }
+  }catch(e){ alert(e.message); }
+}
+function renameSheet(sh){
+  const name = prompt("Yangi varaq nomi:", sh.name);
+  if(name && name.trim() && name.trim() !== sh.name) sheetOp("rename", sh.id, name.trim());
+}
+
+/* ================== import / export ================== */
+$("btnImport").onclick = () => {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = ".xlsx,.xlsm";
+  inp.onchange = async () => {
+    if(!inp.files.length) return;
+    loading(true);
+    try{
+      const fd = new FormData();
+      fd.append("file", inp.files[0]);
+      const d = await api("/api/import", "POST", fd);
+      sheets = d.sheets;
+      await loadSheet(sheets[0].id);
+    }catch(e){ alert(e.message); }
+    finally{ loading(false); }
+  };
+  inp.click();
+};
+$("btnExport").onclick = () => { window.location.href = "/api/export"; };
+
+/* ================== hisobotlar ================== */
+function fmtMoney(v){
+  const n = Number(v);
+  if(isNaN(n)) return String(v);
+  return n.toLocaleString("en-US", {maximumFractionDigits:0});
+}
+$("btnBalans").onclick = async () => {
+  loading(true);
+  try{
+    const d = await api("/api/report/balance");
+    let html = "<table><tr><th>Kategoriya</th><th style='text-align:right'>Summa (so'm)</th><th>Izoh</th></tr>";
+    d.rows.forEach(r => {
+      const cls = (r[0] === "SOF FOYDA" || r[0] === "Yalpi foyda" || r[0] === "Jami xarajat") ? " class='total'" : "";
+      html += `<tr${cls}><td>${r[0]}</td><td class='r'>${fmtMoney(r[1])}</td><td>${r[2]}</td></tr>`;
+    });
+    html += "</table>";
+    if(d.issues.length){
+      html += "<h3 style='margin:16px 0 8px'>Ma'lumot sifati — topilgan xatolar</h3>";
+      d.issues.forEach(i => html += `<div class="issue${i[0]==="info"?" info":""}">${i[0]==="warn"?"⚠":"ℹ"} ${i[1]}</div>`);
+    }
+    openModal("📊 Balans va sof foyda (avtomatik)", html, [
+      {t:"Yopish", f:closeModal},
+      {t:"💾 Natijani 'Hisobot' varaqga yozish", cls:"primary",
+       f:()=>writeReport("balance")},
+    ]);
+  }catch(e){ alert(e.message); }
+  finally{ loading(false); }
+};
+$("btnDDS").onclick = async () => {
+  loading(true);
+  try{
+    const d = await api("/api/report/dds");
+    if(!d.rows.length){ alert("Kunlik ma'lumot topilmadi"); return; }
+    let html = "<table><tr><th>Sana</th><th style='text-align:right'>Kirim</th>" +
+      "<th style='text-align:right'>Chiqim</th><th style='text-align:right'>Ish haqi</th>" +
+      "<th style='text-align:right'>Balans</th></tr>";
+    d.rows.forEach(r => {
+      html += `<tr><td>${r[0]}</td><td class='r'>${fmtMoney(r[1])}</td>` +
+              `<td class='r'>${fmtMoney(r[2])}</td><td class='r'>${fmtMoney(r[3])}</td>` +
+              `<td class='r'><b>${fmtMoney(r[4])}</b></td></tr>`;
+    });
+    html += "</table>";
+    openModal("📅 DDS — kunlik kassa hisoboti", html, [
+      {t:"Yopish", f:closeModal},
+      {t:"💾 Natijani 'DDS' varaqga yozish", cls:"primary",
+       f:()=>writeReport("dds")},
+    ]);
+  }catch(e){ alert(e.message); }
+  finally{ loading(false); }
+};
+async function writeReport(kind){
+  loading(true);
+  try{
+    const d = await api("/api/report/write", "POST", {kind});
+    sheets = d.sheets;
+    closeModal();
+    const t = sheets.find(s => s.name === d.title);
+    if(t) await loadSheet(t.id);
+  }catch(e){ alert(e.message); }
+  finally{ loading(false); }
+}
+function openModal(title, html, buttons){
+  $("modalTitle").textContent = title;
+  $("modalBody").innerHTML = html;
+  const f = $("modalFoot");
+  f.innerHTML = "";
+  (buttons||[]).forEach(b => {
+    const btn = document.createElement("button");
+    btn.className = "btn " + (b.cls || "");
+    btn.textContent = b.t;
+    btn.onclick = b.f;
+    f.appendChild(btn);
+  });
+  $("modal").style.display = "flex";
+}
+function closeModal(){ $("modal").style.display = "none"; }
+
+/* ================== formula satri ================== */
+$("formula").addEventListener("focus", () => { editing = true; });
+$("formula").addEventListener("blur", () => { editing = false; });
+
+/* ================== boshlash ================== */
+(async function init(){
+  try{
+    try{
+      if(localStorage.getItem("sheetHintClosed") === "1")
+        $("hint").style.display = "none";
+    }catch(e){}
+    await loadWorkbook();
+    if(sheets.length) await loadSheet(sheets[0].id);
+  }catch(e){
+    alert("Server bilan bog'lanishda xato: " + e.message);
+  }
+})();
+</script>
+</body>
+</html>
