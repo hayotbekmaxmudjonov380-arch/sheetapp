@@ -1,6 +1,7 @@
 """SQLite asosidagi workbook (kitob) saqlash tizimi."""
 import sqlite3
 import string
+import threading
 from contextlib import contextmanager
 
 SCHEMA = """
@@ -42,14 +43,38 @@ class Workbook:
 
     def __init__(self, path=None):
         self.path = path
-        if path is None:
-            self.conn = sqlite3.connect(":memory:")
-        else:
-            self.conn = sqlite3.connect(path)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.executescript(SCHEMA)
-        if self.conn.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0:
+        self._local = threading.local()
+        self._mem = None            # :memory: uchun umumiy connection
+        self._conns = []
+        self._clock = threading.Lock()
+        conn = self.conn
+        conn.executescript(SCHEMA)
+        if conn.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0:
             self.add_sheet("Varaq1")
+
+    def _open(self):
+        conn = sqlite3.connect(self.path or ":memory:",
+                               timeout=30, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        if self.path:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=30000")
+        with self._clock:
+            self._conns.append(conn)
+        return conn
+
+    @property
+    def conn(self):
+        """Har bir thread o'z connection'ini oladi (Vercel/Werkzeug thread'lari)."""
+        if self.path is None:
+            if self._mem is None:
+                self._mem = self._open()
+            return self._mem
+        c = getattr(self._local, "c", None)
+        if c is None:
+            c = self._open()
+            self._local.c = c
+        return c
 
     # ---------- sheets ----------
     def list_sheets(self):
@@ -180,4 +205,12 @@ class Workbook:
             raise
 
     def close(self):
-        self.conn.close()
+        with self._clock:
+            conns, self._conns = self._conns, []
+        for c in conns:
+            try:
+                c.close()
+            except Exception:
+                pass
+        self._mem = None
+        self._local = threading.local()
